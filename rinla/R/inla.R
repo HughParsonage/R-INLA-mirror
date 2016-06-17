@@ -1004,7 +1004,7 @@
     ## offset = as.vector(model.extract(mf, "offset"))
 
     for (nm in c("scale", "weights", "Ntrials", "offset", "E", "strata", "link.covariates")) {
-        inla.eval(paste("tmp = try(eval(mf$", nm, ", data), silent=TRUE)", sep=""))
+        inla.eval(paste("tmp = try(eval(mf$", nm, ", data, enclos = parent.frame()), silent=TRUE)", sep=""))
         if (!is.null(tmp) && !inherits(tmp, "try-error")) {
             inla.eval(paste("mf$", nm, " = NULL", sep=""))
             inla.eval(paste(nm, " = tmp"))
@@ -1283,7 +1283,7 @@
         }            
         if (debug) {
             for(r in 1:nr)
-                print(paste(r, gp$random.spec[[r]]$model, gp$random.spec[[r]]$of))
+                cat(paste(r, gp$random.spec[[r]]$model, gp$random.spec[[r]]$of, gp$random.spec[[r]]$same.as), "\n")
         }
         
         all.terms = c()
@@ -1842,6 +1842,9 @@
     inla.eval(paste("Sys.setenv(", "\"INLA_PATH\"", "=\"", system.file("bin", package="INLA"), "\"", ")", sep=""))
     inla.eval(paste("Sys.setenv(", "\"INLA_OS\"", "=\"", inla.os.type() , "\"", ")", sep=""))
     inla.eval(paste("Sys.setenv(", "\"INLA_HGVERSION\"", "=\"", inla.version("hgid") , "\"", ")", sep=""))
+    rversion = paste(R.Version()$major, ".", strsplit(R.Version()$minor,"[.]")[[1]][1], sep="")
+    inla.eval(paste("Sys.setenv(", "\"INLA_RVERSION\"", "=\"", rversion , "\"", ")", sep=""))
+    inla.eval(paste("Sys.setenv(", "\"INLA_RHOME\"", "=\"", Sys.getenv("R_HOME") , "\"", ")", sep=""))
     if (debug) {
         inla.eval(paste("Sys.setenv(", "\"INLA_DEBUG=\"", "=\"", 1, "\"", ")", sep=""))
     }
