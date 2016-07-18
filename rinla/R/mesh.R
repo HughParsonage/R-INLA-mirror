@@ -1536,8 +1536,9 @@ inla.mesh.create.helper <- function(points=NULL, points.domain=NULL, ...)
 inla.delaunay <- function(loc, ...)
 {
     ## Handle loc given as SpatialPoints or SpatialPointsDataFrame object
-    if (inherits(loc, "SpatialPoints") ||
-        inherits(loc, "SpatialPointsDataFrame")) {
+    if (!(missing(loc) || is.null(loc)) &&
+        (inherits(loc, "SpatialPoints") ||
+         inherits(loc, "SpatialPointsDataFrame"))) {
       crs = CRS(proj4string(loc))
       loc = coordinates(loc)
     } else {
