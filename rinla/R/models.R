@@ -5739,6 +5739,38 @@
                      pdf = NA
                      ),
 
+                 zeroninflatedbinomial3 = list(
+                     hyper = list(
+                         theta1 = list(
+                             hyperid =  93101,
+                             name = "alpha0",
+                             short.name = "alpha0",
+                             initial = 2,
+                             fixed = FALSE,
+                             prior = "gaussian",
+                             param = c(4, 1),
+                             to.theta = function(x) log(x),
+                             from.theta = function(x) exp(x)
+                             ),
+                         theta2 = list(
+                             hyperid =  93102,
+                             name = "alphaN",
+                             short.name = "alphaN",
+                             initial = 2,
+                             fixed = FALSE,
+                             prior = "gaussian",
+                             param = c(4, 1),
+                             to.theta = function(x) log(x),
+                             from.theta = function(x) exp(x)
+                             )
+                         ),
+                     status = "experimental", 
+                     survival = FALSE,
+                     discrete = FALSE,
+                     link = c("default", "logit", "cauchit", "probit", "cloglog", "loglog"),
+                     pdf = "zeroinflated"
+                     ),
+
                  zeroinflatedbetabinomial2 = list(
                      hyper = list(
                          theta1 = list(
@@ -6323,6 +6355,21 @@
 
     } else {
         ## have to split it, as option keep.source has an upper limit...
+
+        ## remove warnings...
+        if (!exists("low", globalenv())) {
+            assign("low", NA, globalenv())
+            rm.low = TRUE
+        } else {
+            rm.low = FALSE
+        }
+        if (!exists("high", globalenv())) {
+            assign("high", NA, globalenv())
+            rm.high = TRUE
+        } else {
+            rm.high = FALSE
+        }
+        
         models = c(
             inla.models.section.latent(),
             inla.models.section.group(),
@@ -6333,6 +6380,13 @@
             inla.models.section.likelihood(),
             inla.models.section.prior(),
             inla.models.section.wrapper())
+        
+        if (rm.low) {
+            rm("low", envir = globalenv())
+        }
+        if (rm.high) {
+            rm("high", envir = globalenv())
+        }
         
         ## set "read.only" attribute for the `hyper' at those elements
         ## that cannot be changed.
