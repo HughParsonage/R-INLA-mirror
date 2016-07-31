@@ -660,13 +660,13 @@ inla.spde2.pcmatern =
              extraconstr = NULL,
              fractional.method = c("parsimonious", "null"),
              n.iid.group = 1,
-             prior.rho,
-             prior.sigma)
+             prior.range = NULL,
+             prior.sigma = NULL)
 {
   ## Implementation of PC prior for standard deviation and range
   ##    - Sets the parametrization to range and standard deviation
-  ##    - Sets prior according to hyperparameters for range   : prior[1]
-  ##                                              and std.dev.: prior[2]
+  ##    - Sets prior according to hyperparameters for range   : prior.range
+  ##                                              and std.dev.: prior.sigma
   ## Calls inla.spde2.matern to construct the object, then changes the prior
   if (inherits(mesh, "inla.mesh")) {
     d <- 2
@@ -678,13 +678,27 @@ inla.spde2.pcmatern =
                "'.", sep=""))
   }
 
-  if (missing(prior.rho) || is.null(prior.rho) ||
-      !is.vector(prior.rho) || (length(prior.rho) != 2)) {
-    stop("'prior.rho' should be a length 2 vector 'c(rho0,tailprob)'.")
+  if (missing(prior.range) || is.null(prior.range) ||
+      !is.vector(prior.range) || (length(prior.range) != 2)) {
+    stop("'prior.range' should be a length 2 vector 'c(range0,tailprob)' or a fixed range specified with 'c(range,NA)'.")
   }
   if (missing(prior.sigma) || is.null(prior.sigma) ||
       !is.vector(prior.sigma) || (length(prior.sigma) != 2)) {
-    stop("'prior.sigma' should be a length 2 vector 'c(sigma0,tailprob)'.")
+    stop("'prior.sigma' should be a length 2 vector 'c(sigma0,tailprob)' or a fixed sigma specified with 'c(sigma,NA)'.")
+  }
+  if (prior.range[1] <= 0){
+    stop("'prior.range[1]' must be a number greater than 0 specifying a spatial range")
+  }
+  if (prior.sigma[1] <= 0){
+    stop("'prior.sigma[1]' must be a number greater than 0 specifying a standard deviation")
+  }
+  if (!is.na(prior.range[2]) &&
+      ((prior.range[2] <= 0) || (prior.range[2] >= 1))) {
+    stop("'prior.range[2]' must be a probaility strictly between 0 and 1 (or NA to specify a fixed range)")
+  }
+  if (!is.na(prior.sigma[2]) &&
+      ((prior.sigma[2] <= 0) || (prior.sigma[2] >= 1))) {
+    stop("'prior.sigma[2]' must be a probaility strictly between 0 and 1 (or NA to specify a fixed sigma)")
   }
 
   nu <- alpha-d/2
@@ -698,7 +712,7 @@ inla.spde2.pcmatern =
   spde   <- inla.spde2.matern(mesh = mesh,
                               B.tau   = cbind(tau0,   nu,  -1),
                               B.kappa = cbind(kappa0, -1, 0),
-                              alpha=alpha,
+                              alpha = alpha,
                               param = NULL,
                               constr = constr,
                               extraconstr.int = extraconstr.int,
@@ -706,12 +720,35 @@ inla.spde2.pcmatern =
                               fractional.method = fractional.method,
                               n.iid.group = 1)
 
+  ## Calculate hyperparameters
+  is.fixed.range <- is.na(prior.range[2])
+  if (is.fixed.range) {
+    lam1 <- 0
+    initial.range <- log(prior.range[1])
+  } else {
+    lam1 <- -log(prior.range[2])*prior.range[1]^(d/2)
+    initial.range <- log(prior.range[1]) + 1
+  }
+
+  is.fixed.sigma <- is.na(prior.sigma[2])
+  if (is.fixed.sigma){
+    lam2 <- 0
+    initial.sigma <- log(prior.sigma[1])
+  } else{
+    lam2 <- -log(prior.sigma[2])/prior.sigma[1]
+    initial.sigma <- log(prior.sigma[1]) - 1
+  }
+
+  pcmatern.param = c(lam1, lam2, d)
+
   ## Change prior information
   spde$f$hyper.default <-
-    list(theta1=list(prior="pcspdega",
-                     param=c(prior.rho, prior.sigma),
-                     initial=log(prior.rho[1])+1),
-         theta2=list(initial=log(prior.sigma[1])-1))
+    list(theta1=list(prior="pcmatern",
+                     param=pcmatern.param,
+                     initial=initial.range,
+                     fixed=is.fixed.range),
+         theta2=list(initial=initial.sigma,
+                     fixed=is.fixed.sigma))
 
   ## Change the model descriptor
   spde$model = "pcmatern"
