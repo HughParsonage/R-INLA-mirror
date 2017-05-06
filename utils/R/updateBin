@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+d="INLA/inst/bin"
+MAC="rueh@kw-16659.kaust.edu.sa"
+LINUX="hrue@inla.math.ntnu.no"
+WINDOWS=$(echo ~/p/inla/builds/windows)
+
+fix-perm () {
+    local d
+    local f
+    for d in "$@"; do
+	for f in {fmesher,inla}{,.run,.exe}; do
+	    test -f "$d/$f" && chmod 755 "$d/$f"
+	done
+	for lib in "$d"/*.a "$d"/*.so "$d"/*.so.* "$d"/*.dylib "$d"/*.dll; do
+	    test -f "$lib" && chmod 644 "$lib"
+	done
+	      
+    done
+}
+
+for m in 32 64; do
+    for p in inla fmesher; do 
+	for f in $(ssh $MAC bin/my.otool builds/build$m/local/bin/$p) builds/build$m/local/bin/$p; do
+	    echo sync $f
+	    rsync -auvL $MAC:$f $d/mac/${m}bit/.
+	done
+    done
+    fix-perm $d/mac/${m}bit
+done
+
+for m in 32 64; do
+    for p in inla fmesher; do 
+	for f in $(ssh $LINUX bin/my.ldd builds/build$m/local/bin/$p) builds/build$m/local/bin/$p; do
+	    echo sync $f
+	    rsync -auvL $LINUX:$f $d/linux/${m}bit/.
+	done
+    done
+    fix-perm $d/linux/${m}bit
+done
+
+for m in 32 64; do
+    for p in inla fmesher; do 
+	for f in $($WINDOWS$m/bin/my.objdump $WINDOWS$m/local/bin/$p.exe) $WINDOWS$m/local/bin/$p.exe; do
+	    echo sync $f
+	    rsync -auvL $f $d/windows/${m}bit/.
+	done
+    done
+    fix-perm $d/windows/${m}bit
+done
+
+rsync -auv $LINUX:builds/build.static/local/bin/inla $d/linux/64bit/inla.static
+rsync -auv $LINUX:builds/build.static/local/bin/fmesher $d/linux/64bit/fmesher.static
+
+
