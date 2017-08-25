@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+d="INLA/inst/bin"
+
+fix-perm () {
+    local d
+    local f
+    for d in "$@"; do
+	for f in {fmesher,inla}{,.run,.exe}; do
+	    test -f "$d/$f" && chmod 755 "$d/$f"
+	done
+	for lib in "$d"/*.a "$d"/*.so "$d"/*.so.* "$d"/*.dylib "$d"/*.dll; do
+	    test -f "$lib" && chmod 644 "$lib"
+	done
+	      
+    done
+}
+
+for m in 32 64; do
+    for p in inla fmesher; do 
+	for f in $(ssh $INLA_MAC bin/my.otool builds/build$m/local/bin/$p) builds/build$m/local/bin/$p; do
+	    echo sync $f
+	    rsync -auvL $INLA_MAC:$f $d/mac/${m}bit/.
+	done
+    done
+    fix-perm $d/mac/${m}bit
+done
+
+for m in 32 64; do
+    for p in inla fmesher; do 
+	for f in $(ssh -p $INLA_LINUX_PORT $INLA_LINUX bin/my.ldd builds/build$m/local/bin/$p) builds/build$m/local/bin/$p; do
+	    echo sync $f
+	    rsync --rsh="ssh -p $INLA_LINUX_PORT" -auvL $INLA_LINUX:$f $d/linux/${m}bit/.
+	done
+    done
+    fix-perm $d/linux/${m}bit
+done
+
+for m in 32 64; do
+    for p in inla fmesher; do 
+	for f in $($INLA_WINDOWS$m/bin/my.objdump $INLA_WINDOWS$m/local/bin/$p.exe) $INLA_WINDOWS$m/local/bin/$p.exe; do
+	    echo sync $f
+	    rsync -auvL $f $d/windows/${m}bit/.
+	done
+    done
+    fix-perm $d/windows/${m}bit
+done
+
+rsync --rsh="ssh -p $INLA_LINUX_PORT" -auv $INLA_LINUX:builds/build.static/local/bin/inla $d/linux/64bit/inla.static
+rsync --rsh="ssh -p $INLA_LINUX_PORT" -auv $INLA_LINUX:builds/build.static/local/bin/fmesher $d/linux/64bit/fmesher.static
