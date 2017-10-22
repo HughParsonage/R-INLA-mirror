@@ -19,14 +19,13 @@
  *
  * The author's contact information:
  *
- *       H{\aa}vard Rue
- *       Department of Mathematical Sciences
- *       The Norwegian University of Science and Technology
- *       N-7491 Trondheim, Norway
- *       Voice: +47-7359-3533    URL  : http://www.math.ntnu.no/~hrue  
- *       Fax  : +47-7359-3524    Email: havard.rue@math.ntnu.no
+ *        Haavard Rue
+ *        CEMSE Division
+ *        King Abdullah University of Science and Technology
+ *        Thuwal 23955-6900, Saudi Arabia
+ *        Email: haavard.rue@kaust.edu.sa
+ *        Office: +966 (0)12 808 0640
  *
- * RCSId: $Id: inla.h,v 1.238 2010/04/03 12:33:29 hrue Exp $
  *
  */
 #ifndef __INLA_H__
@@ -48,6 +47,7 @@ __BEGIN_DECLS
 #include "strlib.h"
 #include "ar.h"
 #include "fgn.h"
+#include "stochvol.h"
 #include "quantile-regression.h"
 #define LOG_NORMC_GAUSSIAN (-0.91893853320467274178032973640560)	/* -1/2 * log(2*pi) */
 #define INLA_FAIL  1
@@ -94,7 +94,7 @@ typedef enum {
 	INLA_MODE_FINN,
 	INLA_MODE_GRAPH,
 	INLA_MODE_R,
-	INLA_MODE_FGN, 
+	INLA_MODE_FGN,
 	INLA_MODE_TESTIT = 999
 } inla_mode_tp;
 
@@ -377,10 +377,10 @@ typedef struct {
 	double **qloglogistic_log_prec;
 
 	/*
-	 * qpoisson. Hold the solution to ``exp(lquantile)=pcontpois(exp(eta),alpha)'' for all (lquantile,eta),
+	 * qcontpoisson. Hold the solution to ``exp(lquantile)=pcontpois(exp(eta),alpha)'' for all (lquantile,eta),
 	 * one for each thread
 	 */
-	GMRFLib_spline_tp **qpoisson_func;
+	GMRFLib_spline_tp **qcontpoisson_func;
 
 	/*
 	 * For both modelx nmix and nmixnb
@@ -395,7 +395,7 @@ typedef struct {
 	 * generalized Pareto
 	 */
 	double **gp_log_shape;				       /* log(shape) [or log(xi)] parameter */
-	
+
 } Data_tp;
 
 typedef struct {
@@ -468,11 +468,12 @@ typedef enum {
 	L_SKEWNORMAL2,
 	L_QKUMAR,
 	L_QLOGLOGISTIC,
-	L_QPOISSON,
+	L_QCONTPOISSON,
 	L_CENPOISSON,					       /* cencored poisson */
 	L_NMIX,
 	L_NMIXNB,
-	L_GP, 
+	L_GP,
+	L_CONTPOISSON,
 	F_RW2D = 1000,					       /* f-models */
 	F_BESAG,
 	F_BESAG2,					       /* the [a*x, x/a] model */
@@ -516,6 +517,8 @@ typedef enum {
 	F_LOGDIST,
 	F_R_GENERIC,
 	F_FGN,
+	F_FGN2,
+	F_AR1C,
 	P_LOGGAMMA = 2000,				       /* priors */
 	P_GAUSSIAN,
 	P_MVGAUSSIAN,
@@ -544,9 +547,9 @@ typedef enum {
 	P_PC_RANGE,
 	P_PC_AR,
 	P_PC_FGN_H,
-	P_PC_GAMMA, 
-	P_PC_MGAMMA, 
-	P_PC_GAMMACOUNT, 
+	P_PC_GAMMA,
+	P_PC_MGAMMA,
+	P_PC_GAMMACOUNT,
 	P_REF_AR,					       /* Reference prior for AR(p) for p=1,2,3 */
 	P_INVALID,
 	G_EXCHANGEABLE = 3000,				       /* group models */
@@ -572,7 +575,8 @@ typedef enum {
 	LINK_SSLOGIT,
 	LINK_LOGLOG,
 	LINK_CAUCHIT,
-	LINK_LOGITOFFSET
+	LINK_LOGITOFFSET,
+	LINK_INVERSE
 } inla_component_tp;
 
 
@@ -736,9 +740,8 @@ typedef struct {
 } inla_update_tp;
 
 typedef struct {
-	char *Rfile;					       /* filename to be sourced */
-	char *RData;					       /* filename to be loaded */
-	char *func;					       /* function to be called: fun(theta) */
+	char *file;
+	char *model;					       /* function to be called: fun(theta) */
 } inla_jp_tp;
 
 
@@ -1056,6 +1059,26 @@ typedef struct {
 
 typedef struct {
 	/*
+	 * the AR(1) model with covariates: X_t = phi * X_t-1 + beta'* Z_{t-1} + eps_t
+	 * Prec(eps_t) = exp(log_precision)/(1-phi^2), and phi_intern =
+	 * logit((phi+1)/2). 
+	 *
+	 * total internal length, is N = n+m = AR1 + beta's
+	 */
+	int N;
+	int n;						       /* length of AR1 */
+	int m;						       /* number of covariates Z */
+	double **log_prec;				       /* theta[0] (marginal precision)*/
+	double **phi_intern;				       /* theta[1] */
+	GMRFLib_matrix_tp *Z;
+	GMRFLib_matrix_tp *ZZ;
+	GMRFLib_matrix_tp *Qbeta;
+	double logdet_Qbeta;
+} inla_ar1c_arg_tp;
+
+
+typedef struct {
+	/*
 	 * 2D iid random effects. The coding is (x0,y0,x1,y1,...,xn-1,yn-1), so the total length is N=2*n. For the 2DIIDWISHART the coding is (x,y).
 	 */
 	int n;
@@ -1275,6 +1298,7 @@ typedef struct {
 
 #define R_GENERIC_MODEL ".inla.rgeneric.model"
 #define R_GENERIC_WRAPPER "inla.rgeneric.wrapper"
+#define R_JP_MODEL ".inla.jp.model"
 
 #define INLA_LITTLE_ENDIAN 1
 #define INLA_BIG_ENDIAN    2
@@ -1311,6 +1335,7 @@ double Qfunc_2diid(int i, int j, void *arg);
 double Qfunc_2diid_wishart(int i, int j, void *arg);
 double Qfunc_ar(int i, int j, void *arg);
 double Qfunc_ar1(int i, int j, void *arg);
+double Qfunc_ar1c(int i, int j, void *arg);
 double Qfunc_besag(int i, int j, void *arg);
 double Qfunc_besag2(int i, int j, void *arg);
 double Qfunc_besagproper(int i, int j, void *arg);
@@ -1340,6 +1365,7 @@ double Qfunc_z(int i, int j, void *arg);
 double ar_map_pacf(double arg, map_arg_tp typ, void *param);
 double ddexp_taylor(double x, double x0, int order);
 double dexp_taylor(double x, double x0, int order);
+double eval_log_contpoisson(double y, double lambda);
 double eval_logsum_safe(double lA, double lB);
 double exp_taylor(double x, double x0, int order);
 double extra(double *theta, int ntheta, void *argument);
@@ -1348,18 +1374,21 @@ double inla_Phi(double x);
 double inla_Phi_fast(double x);
 double inla_ar1_cyclic_logdet(int N_orig, double phi);
 double inla_compute_initial_value(int idx, GMRFLib_logl_tp * logl, double *x_vec, void *arg);
+double inla_compute_saturated_loglik(int idx, GMRFLib_logl_tp *loglfunc, double *x_vec, void *arg);
+double inla_compute_saturated_loglik_core(int idx, GMRFLib_logl_tp * loglfunc, double *x_vec, void *arg);
 double inla_log_Phi(double x);
 double inla_log_Phi_fast(double x);
 double inla_update_density(double *theta, inla_update_tp * arg);
 double link_cauchit(double x, map_arg_tp typ, void *param, double *cov);
 double link_cloglog(double x, map_arg_tp typ, void *param, double *cov);
 double link_identity(double x, map_arg_tp typ, void *param, double *cov);
+double link_inverse(double x, map_arg_tp typ, void *param, double *cov);
 double link_log(double x, map_arg_tp typ, void *param, double *cov);
-double link_neglog(double x, map_arg_tp typ, void *param, double *cov);
 double link_logit(double x, map_arg_tp typ, void *param, double *cov);
 double link_logitoffset(double x, map_arg_tp typ, void *param, double *cov);
 double link_loglog(double x, map_arg_tp typ, void *param, double *cov);
 double link_logoffset(double x, map_arg_tp typ, void *param, double *cov);
+double link_neglog(double x, map_arg_tp typ, void *param, double *cov);
 double link_probit(double x, map_arg_tp typ, void *param, double *cov);
 double link_special1(double x, map_arg_tp typ, void *param, double *cov);
 double link_special2(double x, map_arg_tp typ, void *param, double *cov);
@@ -1368,6 +1397,7 @@ double link_tan(double x, map_arg_tp typ, void *param, double *cov);
 double link_test1(double x, map_arg_tp typ, void *param, double *cov);
 double link_this_should_not_happen(double x, map_arg_tp typ, void *param, double *cov);
 double map_1exp(double arg, map_arg_tp typ, void *param);
+double map_H(double x, map_arg_tp typ, void *param);
 double map_alpha_loglogistic(double arg, map_arg_tp typ, void *param);
 double map_alpha_weibull(double arg, map_arg_tp typ, void *param);
 double map_alpha_weibull_cure(double arg, map_arg_tp typ, void *param);
@@ -1375,21 +1405,21 @@ double map_beta(double arg, map_arg_tp typ, void *param);
 double map_dof(double arg, map_arg_tp typ, void *param);
 double map_dof5(double arg, map_arg_tp typ, void *param);
 double map_exp(double arg, map_arg_tp typ, void *param);
-double map_negexp(double arg, map_arg_tp typ, void *param);
 double map_group_rho(double x, map_arg_tp typ, void *param);
 double map_identity(double arg, map_arg_tp typ, void *param);
 double map_identity_scale(double arg, map_arg_tp typ, void *param);
 double map_invcauchit(double arg, map_arg_tp typ, void *param);
 double map_invcloglog(double arg, map_arg_tp typ, void *param);
+double map_inverse(double arg, map_arg_tp typ, void *param);
 double map_invlogit(double x, map_arg_tp typ, void *param);
 double map_invloglog(double arg, map_arg_tp typ, void *param);
 double map_invprobit(double arg, map_arg_tp typ, void *param);
 double map_invtan(double arg, map_arg_tp typ, void *param);
+double map_negexp(double arg, map_arg_tp typ, void *param);
 double map_p_weibull_cure(double arg, map_arg_tp typ, void *param);
 double map_phi(double arg, map_arg_tp typ, void *param);
 double map_precision(double arg, map_arg_tp typ, void *param);
 double map_probability(double x, map_arg_tp typ, void *param);
-double map_H(double x, map_arg_tp typ, void *param);
 double map_range(double arg, map_arg_tp typ, void *param);
 double map_rho(double arg, map_arg_tp typ, void *param);
 double map_shape_svnig(double arg, map_arg_tp typ, void *param);
@@ -1420,13 +1450,13 @@ double priorfunc_pc_ar(double *x, double *parameters);
 double priorfunc_pc_cor0(double *x, double *parameters);
 double priorfunc_pc_cor1(double *x, double *parameters);
 double priorfunc_pc_dof(double *x, double *parameters);
-double priorfunc_pc_prec(double *x, double *parameters);
-double priorfunc_pc_spde_ga(double *x, double *parameters);
-double priorfunc_pc_matern(double *x, double *parameters);
-double priorfunc_pc_range(double *x, double *parameters);
 double priorfunc_pc_gamma(double *x, double *parameters);
-double priorfunc_pc_mgamma(double *x, double *parameters);
 double priorfunc_pc_gammacount(double *x, double *parameters);
+double priorfunc_pc_matern(double *x, double *parameters);
+double priorfunc_pc_mgamma(double *x, double *parameters);
+double priorfunc_pc_prec(double *x, double *parameters);
+double priorfunc_pc_range(double *x, double *parameters);
+double priorfunc_pc_spde_ga(double *x, double *parameters);
 double priorfunc_ref_ar(double *x, double *parameters);
 double priorfunc_wishart(int dim, double *x, double *parameters);
 double priorfunc_wishart1d(double *x, double *parameters);
@@ -1484,6 +1514,7 @@ int inla_make_2diid_wishart_graph(GMRFLib_graph_tp ** graph, inla_2diid_arg_tp *
 int inla_make_3diid_graph(GMRFLib_graph_tp ** graph, inla_3diid_arg_tp * arg);
 int inla_make_3diid_wishart_graph(GMRFLib_graph_tp ** graph, inla_3diid_arg_tp * arg);
 int inla_make_ar1_graph(GMRFLib_graph_tp ** graph, inla_ar1_arg_tp * arg);
+int inla_make_ar1c_graph(GMRFLib_graph_tp ** graph, inla_ar1c_arg_tp * arg);
 int inla_make_besag2_graph(GMRFLib_graph_tp ** graph_out, GMRFLib_graph_tp * graph);
 int inla_make_bym_graph(GMRFLib_graph_tp ** new_graph, GMRFLib_graph_tp * graph);
 int inla_make_group_graph(GMRFLib_graph_tp ** new_graph, GMRFLib_graph_tp * graph, int ngroup, int type, int cyclic, int order,
@@ -1597,6 +1628,7 @@ int loglikelihood_binomial(double *logll, double *x, int m, int idx, double *x_v
 int loglikelihood_cbinomial(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
 int loglikelihood_cenpoisson(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
 int loglikelihood_circular_normal(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
+int loglikelihood_contpoisson(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
 int loglikelihood_exp(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
 int loglikelihood_expsurv(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
 int loglikelihood_gammacount(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
@@ -1617,10 +1649,9 @@ int loglikelihood_negative_binomial(double *logll, double *x, int m, int idx, do
 int loglikelihood_nmix(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
 int loglikelihood_nmixnb(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
 int loglikelihood_poisson(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
+int loglikelihood_qcontpoisson(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
 int loglikelihood_qkumar(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
-int loglikelihood_qpoisson(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
 int loglikelihood_qloglogistic(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
-int loglikelihood_qpoisson(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
 int loglikelihood_simplex(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
 int loglikelihood_skew_normal(double *logll, double *x, int m, int idx, double *x_vec, void *arg);
 int loglikelihood_skew_normal2(double *logll, double *x, int m, int idx, double *x_vec, void *arg);

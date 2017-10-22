@@ -78,8 +78,8 @@
         ##:ARGUMENT: graph The graph spesification (Only applies to model 'besag')
         graph = NULL, 
 
-        ##:ARGUMENT: scale.model Scale the intrinsic model (RW1, RW2, BESAG) so the generalized variance is 1. (Default \code{inla.getOption("scale.model.default")}.)
-        scale.model = NULL, 
+        ##:ARGUMENT: scale.model Scale the intrinsic model (RW1, RW2, BESAG) so the generalized variance is 1. (Default \code{TRUE})
+        scale.model = TRUE, 
 
         ##:ARGUMENT: adjust.for.con.comp Adjust for connected components when \code{scale.model=TRUE}?
         adjust.for.con.comp = TRUE, 
@@ -189,15 +189,9 @@
         ##:ARGUMENT: disable.gaussian.check Disable the check for fast computations with a Gaussian likelihood and identity link
         disable.gaussian.check = FALSE, 
 
-        ##:ARGUMENT: jp.RData The R-data file that contains global variables to be used by \code{jp.func}
-        jp.RData = NULL,
-
-        ##:ARGUMENT: jp.Rfile The R-file to be sourced to set up a joint prior for the hyperparameters to be evaluated by \code{jp.func} 
-        jp.Rfile = NULL, 
-
-        ##:ARGUMENT: jp.func The R-function which returns the joint prior,  to be defined in \code{jp.Rfile} 
-        jp.func = NULL
-        )
+        ##:ARGUMENT: jp An object of class \code{inla.jp} defining a joint prior
+        jp = NULL
+    )
 
     ##:SEEALSO: inla
 }
@@ -352,15 +346,18 @@
         ##:ARGUMENT: strategy  Character The strategy to use for the approximations; one of 'gaussian', 'simplified.laplace' (default) or 'laplace'
         strategy="simplified.laplace",
 
-        ##:ARGUMENT: int.strategy  Character The integration strategy to use; one of 'auto' (default),  'ccd', 'grid' or 'eb' (empirical bayes)
+        ##:ARGUMENT: int.strategy  Character The integration strategy to use; one of 'auto' (default),  'ccd', 'grid', 'eb' (empirical bayes),  'user' or 'user.std'
         int.strategy="auto",
+
+        ##:ARGUMENT: int.design  Matrix Matrix of user-defined integration points and weights. Each row consists theta values and the integration weight. (EXPERIMENTAL!)
+        int.design=NULL,
 
         ##:ARGUMENT: interpolator  Character The interpolator used to compute the marginals for the hyperparameters. One of 'auto', 'nearest', 'quadratic', 'weighted.distance', 'ccd', 'ccdintegrate', 'gridsum', 'gaussian'. Default is 'auto'.
         interpolator="auto",
 
         ##:ARGUMENT: fast Logical If TRUE, then replace conditional modes in the Laplace approximation with conditional expectation (default TRUE)
         fast = TRUE,
-            
+
         ##:ARGUMENT: linear.correction Logical Default TRUE for the 'strategy = laplace' option.
         linear.correction=NULL,
 
