@@ -1,0 +1,263 @@
+\section{Dynamic regression example}\label{sec:dynamic} 
+
+The R source for this file is available at
+\url{http://www.math.ntnu.no/inla/r-inla.org/tutorials/spde/R/spde-tutorial-dynamic.R}
+
+
+<<opts,echo=F,results='hide',message=FALSE,warning=FALSE>>=
+library(knitr)
+opts_chunk$set(
+fig.path='figs/dynamic',
+message=FALSE, warning=FALSE
+)
+options(width=75, prompt = " ", continue = "   ")
+library(INLA) 
+lcall <- inla.getOption('inla.call') 
+inla.setOption(inla.call='remote')
+inla.setOption(num.threads=8)
+source('R/spde-tutorial-functions.R')
+@ 
+
+There is a large literature about dynamic models 
+with also some books about it, from \cite{westH:1997} 
+to \cite{PetrisPC:2009}. 
+These models basically defines an hierarchical 
+framework for a class of time series models. 
+A particular case is the dynamic regression model, 
+were the regression coefficients are modeled as time series. 
+That is the case when the regression coefficients 
+vary smoothly over time.
+
+\subsection{Dynamic space-time regression}
+
+The specific class of models for spatially 
+structured time series was proposed by \cite{gelfandKSB:2003}, 
+where the regression coefficients varies smoothly over time and space. 
+For the areal data case, the use of proper Gaussian Markov random fields (PGMRF) 
+over space as proposed by \cite{vivarF:2009}. 
+There exists a particular class of such models called 
+``spatially varying coefficient models'' 
+were the regression coefficients veries over space, 
+\cite{assuncaoGA:1999}, \cite{assuncaoPC:2002}, \cite{gamermanMR:2003}. 
+
+In \cite{gelfandKSB:2003} the Gibbs sampler were used for inference and 
+it was claimed that better algorithms is needed due to strong autocorrelations. 
+In \cite{vivarF:2009} the use of forward information 
+filtering and backward sampling (FIFBS) recursions were proposed. 
+Both MCMC algorithms are computationally expensive. 
+
+One can avoid the FFBS algorithm as a relation between the Kalman-filter 
+and the Cholesky factorization is provided in \cite{knorrheldR:2002}. 
+The Cholesky fator  is more general and has superior performance 
+when using sparse matrix methods, \cite[p. 149]{RueHeld:2005}.  
+Additionally, the restriction that the prior for the latent field has to be proper can be avoided. 
+
+When the likelihood is Gaussian, there is no approximation needed in the inference process since 
+the distribution of the latent field given the data and the hyperparameters is Gaussian. 
+So, the main task is to perform inference for the hyperparameters in the model. 
+For this, the mode and curvature around can be found without any sampling method. 
+For the class of models in~\cite{vivarF:2009} it is natural to use INLA, 
+as shown in \cite{cardenasKR:2012}, and for the models in~\cite{gelfandKSB:2003} 
+we can use the SPDE approach when considering the Mat\'ern covariance for the spatial part. 
+
+In this example we will show how to fit the space-time dynamic regression model 
+as in \cite{gelfandKSB:2003}, considering the Mat\'ern spatial covariance and 
+the AR(1) model for time which corresponds to the exponential correlation function. 
+This particular covariance choise correspond to the model in 
+\cite{cameletti:2012}, where only the intercept is dynamic. 
+Here, we show the case when we have a dynamic intercept and 
+a dynamic regression coefficient for an harmonic over time. 
+
+\subsection{Simulation from the model}
+
+We can start on defining the spatial locations:
+<<coom>>=
+n <- 150;   set.seed(1);  coo <- matrix(runif(2*n), n)
+@ 
+
+To sample from a random field on a set of location, 
+we can use the \texttt{rMatern()} 
+function defined in the Section~\ref{sec:simulatoy}
+to simulate independent random field realizations for each time.  
+This function is available in the file at 
+\url{http://www.math.ntnu.no/inla/r-inla.org/tutorials/spde/R/spde-tutorial-functions.R}
+
+We draw $k$ (number of time points) samples from the random field. 
+Then, we make it temporally correlated considering the time autoregression 
+<<sample>>=
+kappa <- c(10, 12);    sigma2 <- c(1/2, 1/4)
+k <- 15;  rho <- c(0.7, 0.5) 
+set.seed(2); beta0 <- rMatern(k, coo, kappa[1], sigma2[1]) 
+set.seed(3); beta1 <- rMatern(k, coo, kappa[2], sigma2[2]) 
+beta0[,1] <- beta0[,1] / (1-rho[1]^2)
+beta1[,1] <- beta1[,1] / (1-rho[2]^2)
+for (j in 2:k) {
+    beta0[, j] <- beta0[,j-1]*rho[1] + beta0[,j] * (1-rho[1]^2)
+    beta1[, j] <- beta1[,j-1]*rho[2] + beta1[,j] * (1-rho[2]^2)
+}
+@ 
+where the $(1-\rho_j^2)$ term is in accord to the 
+parametrization of the AR($1$) model in INLA.
+
+To get the response, we define the harmonic as a function over time, 
+compute the mean and add an error term 
+<<response>>=
+set.seed(4); hh <- runif(n*k) ### simlate the covariate values
+mu.beta <- c(-5, 1);   taue <- 20 
+set.seed(5); error <- rnorm(n*k, 0, sqrt(1/taue)) ### error in the observation
+length(y <- (mu.beta[1] + beta0) + (mu.beta[2]+beta1)*hh + ### dynamic regression part
+           error)
+@ 
+
+\subsection{Fitting the model}
+
+We have two space-time terms on the model, 
+each one with three hyperparameters: 
+precision, spatial scale, temporal scale (or temporal correlation). 
+So, considering the likelihood, $7$ hyperparameters in total. 
+To perform fast inference, we choose to have a crude mesh with 
+with small number of vertices. 
+<<mesh>>=
+(mesh <- inla.mesh.2d(coo, max.edge=c(0.25), ### coarse mesh
+                      offset=c(0.15), cutoff=0.05))$n
+@  
+<<vmesh,eval=FALSE,echo=FALSE,results='hide'>>=
+mesh$n
+plot(mesh, asp=1)
+points(coo, pch=4, col=2)
+@ 
+
+Defining the SPDE model considering the PC-prior 
+derived in \cite{fuglstadetal:2017} for the 
+model parameters as the practical range, $\sqrt{8\nu}/\kappa$, 
+and the marginal standard deviation.  
+<<spde>>=
+spde <- inla.spde2.pcmatern(
+    mesh=mesh, alpha=2, ### mesh and smoothness parameter
+    prior.range=c(0.05, 0.01), ### P(practic.range<0.05)=0.01
+    prior.sigma=c(1, 0.01)) ### P(sigma>1)=0.01
+@ 
+
+We do need one set of index for each call of the \texttt{f()} 
+function, no matter if they are the same, so:
+<<idx>>=
+i0 <- inla.spde.make.index('i0', spde$n.spde, n.group=k)
+i1 <- inla.spde.make.index('i1', spde$n.spde, n.group=k)
+@ 
+
+In the SPDE approach, the space-time model is defined in a set of mesh nodes. 
+As we have considered continuous time, it is also defined on a set of time knots. 
+So, we have to deal with the projection from the model 
+domain (nodes, knots) to the space-time data locations. 
+For the intercept it is the same way as in the other examples. 
+For the regression coefficients, all we need to multiply 
+the projector matrix by the covariate vector columnwie, 
+i. e., each column of the projector matrix 
+is multiplyed by the covariate vector.  
+It can be seen from the following 
+\begin{eqnarray}
+\boldeta & = & \mu_{\beta_0} + \mu_{\beta_2}\mb{h} + 
+\mb{A} \mb{\beta}_0 + (\mb{A} \mb{\beta}_1) \mb{h} \nonumber \\
+ & = & \mu_{\beta_0} + \mu_{\beta_1}\mb{h} + 
+ \mb{A} \mb{\beta}_0 + (\mb{A} \oplus (\mb{h}\mb{1}^{'}))\mb{\beta}_1 \label{eq:dynspde}
+\end{eqnarray}
+where $\mb{A} \oplus (\mb{h} \mb{1}^{'})$ is the 
+row-wise Kronecker product between $\mb{A}$ and 
+a the vector $\mb{h}$ (with length equal the number of rows in $\mb{A}$) 
+expressed as the Kronecker sum of $\mb{A}$ and $\mb{h}\mb{1}^{1}$. 
+This operation can be performed usind the \texttt{inla.row.kron()} function 
+and is done internally in the function \texttt{inla.spde.make.A()} 
+when supplying a vector in the \texttt{weights} argument.
+
+The space-time projector matrix $\mb{A}$ is defined as follows:
+<<spdebuild>>=
+A0 <- inla.spde.make.A(mesh, cbind(rep(coo[,1], k), rep(coo[,2], k)),
+                       group=rep(1:k, each=n))
+A1 <- inla.spde.make.A(mesh, cbind(rep(coo[,1], k), rep(coo[,2], k)),
+                       group=rep(1:k, each=n), weights=hh)
+@ 
+
+The data stack is as follows
+<<stky>>=
+stk.y <- inla.stack(data=list(y=as.vector(y)), tag='y', 
+                    A=list(A0, A1, 1), 
+                    effects=list(i0, i1, 
+                        data.frame(mu1=1, h=hh)))
+@ 
+where \code{i0} is similar to \code{i1} and 
+the elements \code{mu1} and \texttt{h} in the second element of the effects \texttt{data.frame} is for $\bmu_{\xi}$.  
+
+The formula take these things into account 
+<<formula>>=
+form <- y ~ 0 + mu1 + h + ### to fit mu_beta
+    f(i0, model=spde, group=i0.group, control.group=list(model='ar1')) + 
+        f(i1, model=spde, group=i1.group, control.group=list(model='ar1'))
+@
+
+As we have Gaussian likelihood there is no approximation in the fitting process. 
+The first step of the INLA algorithm is the optimization to find the mode of the $7$ hyperparameters in the model. 
+By choosing good starting values it will be needed less iteractions in this optimization process. 
+Below, we define starting values for the hyperparameters in the internal scale considering the values used to simute the data
+<<theta>>=
+(theta.ini <- c(log(taue), ## likelihood log precision
+                log(sqrt(8)/kappa[1]), ## log range 1
+                log(sqrt(sigma2[1])), ## log stdev 1
+                log((1+rho[1])/(1-rho[1])), ## inv.logit rho 1
+                log(sqrt(8)/kappa[2]), ## log range 1
+                log(sqrt(sigma2[2])), ## log stdev 1
+                log((1+rho[2])/(1-rho[2]))))## inv.logit rho 2
+@ 
+This step takes around few minutes to fit, and 
+with bigger \texttt{tolerance} value in \texttt{inla.control}, 
+it will makes fewer posterior evaluations. 
+
+The integration step when using the CCD strategy, will integrates over 79 hyperparameter configurations, 
+as we have $7$ hyperparameters. 
+However, in the following \texttt{inla()} call we avoid it.
+
+Fitting the model considering the initial values defined above
+<<fittingdyn3>>=
+(res <- inla(form, family='gaussian', data=inla.stack.data(stk.y), 
+            control.predictor=list(A=inla.stack.A(stk.y)),
+            control.inla=list(int.strategy='eb'), ### no integration wr theta
+            control.mode=list(theta=theta.ini, ### initial theta value
+                              restart=TRUE)))$cpu 
+@ 
+
+Summary of the $\mu_{\beta}$:
+<<summarymux>>=
+round(cbind(true=mu.beta, res$summary.fix), 4)
+@ 
+
+Summary for the likelihood precision
+<<likprec>>=
+round(c(true=taue, unlist(res$summary.hy[1,])), 3)
+@ 
+
+We can see the posterior marginal distributions for the 
+range and standard deviation for each 
+spatio-temporal process in Figure~\ref{fig:hd3pmds}. 
+<<hd3pmds, echo=TRUE, eval=FALSE>>=
+par(mfrow=c(2, 3), mar=c(2.5,2.5,0.3,0.3), mgp=c(1.5,0.5,0)) 
+for (j in 2:7) {
+    plot(res$marginals.hy[[j]], type='l', 
+         xlab=names(res$marginals.hyperpar)[j], ylab='Density')
+    abline(v=c(sqrt(8)/kappa[1], sigma2[1]^0.5, rho[1], 
+               sqrt(8)/kappa[2], sigma2[2]^0.5, rho[2])[j-1])
+}
+@ 
+\begin{figure}\centering
+<<hd3pmdsf, eval=TRUE, echo=FALSE, fig.width=7.5, fig.height=4, out.width='0.97\\textwidth'>>=
+<<hd3pmds>>
+@ 
+\caption{Posterior marginal distributions for the 
+  hyperparameters of the spacetime fields.}
+\end{figure}\label{fig:hd3pmds}
+
+We can have a look over the posterior mean of the dynamic coefficients. 
+We compute the correlation between the simulated and the posterior mean ones by
+<<betas>>=
+c(beta0=cor(as.vector(beta0), drop(A0%*%res$summary.ran$i0$mean)), 
+  beta1=cor(as.vector(beta1), 
+      drop(A0%*%res$summary.ran$i1$mean))) ## using A0 to account only for the coeff.
+@ 
