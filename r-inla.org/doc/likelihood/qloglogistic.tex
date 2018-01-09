@@ -1,0 +1,88 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[scale={0.8,0.9},centering,includeheadfoot]{geometry}
+\usepackage{amstext}
+\usepackage{amsmath}
+\usepackage{verbatim}
+\newcommand{\vect}[1]{\boldsymbol{#1}}
+\begin{document}
+
+\section*{qLogLogistic likelihood}
+
+\subsection*{Parametrisation}
+
+The LogLogistic distribution has cumulative distribution function
+\begin{displaymath}
+    F_0(y) = \frac{1}{1 + \lambda y^{-\alpha}}, \qquad y > 0
+\end{displaymath}
+if \texttt{variant=0}, or
+\begin{displaymath}
+    F_1(y) = \frac{1}{1 + (\lambda y)^{-\alpha}}, \qquad y > 0
+\end{displaymath}
+if \texttt{variant=1}, where
+\begin{description}
+\item[$\alpha > 0$] is a shape parameter, and
+\item[$\lambda > 0$] is a scale parameter.
+\end{description}
+The $\lambda$ is defined implicitely through the quantile, as
+\begin{displaymath}
+    F_0(y_q) = q, \quad\text{or}\quad
+    F_q(y_q) = q, \quad 0<q<1
+\end{displaymath}
+and the linear predictor is defined on $y_q$.
+
+\subsection*{Link-functions}
+
+The parameter $\lambda$ is linked to the linear predictor, implicitely through
+\[
+    y_q = \exp(\eta)
+\]
+
+\subsection*{Hyperparameters}
+
+The $\alpha$ parameter is represented as
+\[
+    \theta = \log\alpha
+\]
+and the prior is defined on $\theta$.
+
+\subsection*{Specification}
+
+\begin{itemize}
+\item \texttt{family} equals \texttt{qloglogistic} (regression) or
+    \texttt{qloglogisticsurv} (survival)
+\item \texttt{variant=0} (default) or 1, chosing between
+    parameterisation $F_0$ or $F_1$.
+\item Required arguments: $y$ (regression) or an
+    \texttt{inla.surv}-object using \texttt{inla.surv()} (for survival
+    data), and quantile$=q$.
+\end{itemize}
+
+\subsubsection*{Hyperparameter spesification and default values}
+\textbf{Regression:} \input{../hyper/likelihood/qloglogistic.tex}
+
+\textbf{Survival:} \input{../hyper/likelihood/qloglogisticsurv.tex}
+
+
+\subsection*{Example}
+
+In the following example we estimate the parameters in a simulated
+case \verbatiminput{example-qloglogistic.R}
+
+\subsection*{Notes}
+
+\begin{itemize}
+\item Loglogisticsurv model can be used for right censored, left
+    censored, interval censored data. If the observed times $y$ are
+    large/huge, then this can cause numerical overflow in the
+    likelihood routine. If you encounter this problem, try to scale
+    the observatios, \verb|time = time / max(time)| or similar.
+\end{itemize}
+
+\end{document}
+
+
+
+%%% Local Variables: 
+%%% TeX-master: t
+%%% End: 
+
